@@ -2,7 +2,8 @@
 open System.IO
 open System.Xml
 
-let xml = File.ReadAllText("./ScannedCode/SosNet.Cache.Lookup.fsproj")
+let fileName = "./ScannedCode/SosNet.Cache.Lookup.fsproj"
+let xml = File.ReadAllText(fileName)
 
 let doc = new XmlDocument() in doc.LoadXml xml;
 let referencesFound =
@@ -11,4 +12,4 @@ let referencesFound =
     |> Seq.map (fun node -> node.Value)
     |> String.concat Environment.NewLine
 
-printfn "%s" referencesFound
+printfn $"{fileName}:{Environment.NewLine}{referencesFound}"
