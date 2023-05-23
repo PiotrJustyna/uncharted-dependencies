@@ -2,19 +2,18 @@
 open System.IO
 open System.Text.RegularExpressions
 open System.Xml
+open System.Threading
+
+let nixFriendlyPath (anyPath:string) : string = "./ScannedCode/" + anyPath.Replace("\\", "/")
 
 let buildDictionary (input: string seq) : Collections.Generic.IDictionary<string, string> =
     input
     |> Seq.map (fun x -> Guid.NewGuid().ToString().Replace("-", ""), x)
     |> dict
 
-let fileName = "./ScannedCode/SosNet.Cache.Lookup.fsproj"
-
-let xml = File.ReadAllText(fileName)
-
-let doc = new XmlDocument() in doc.LoadXml xml;
-
-let referencesFound =
+let referencesFound (fileName: string) : string =
+    let xml = File.ReadAllText(fileName)
+    let doc = new XmlDocument() in doc.LoadXml xml
     doc.SelectNodes "/Project/ItemGroup/ProjectReference/@Include"
     |> Seq.cast<XmlNode>
     |> Seq.map (fun node -> node.Value)
@@ -26,10 +25,12 @@ printf $"scanning for a solution file...{Environment.NewLine}"
 
 printfn "```mermaid"
 printfn "---"
-printfn "title: fcc dependencies"
+printfn "title: dependencies"
 printfn "---"
 printfn "stateDiagram-v2"
 printfn "direction lr"
+
+// Thread.Sleep(600000)
 
 let solutions =
     Directory.GetFiles("./ScannedCode/", "*.sln")
@@ -37,8 +38,10 @@ let solutions =
         let solution = File.ReadAllText x
         let projects =
             Regex.Matches(solution, "[a-zA-Z\\\.]+\.[c|f]{1}sproj")
-            |> Seq.map(fun y -> y.Value)
-            |> buildDictionary
+            |> Seq.map (fun y ->
+                let path = nixFriendlyPath y.Value
+                Guid.NewGuid().ToString().Replace("-", ""), (path, referencesFound path))
+            |> dict
         Guid.NewGuid().ToString().Replace("-", ""), (x, projects))
     |> dict
 
@@ -47,7 +50,7 @@ let states =
     |> Seq.map (fun x ->
         let projectStates =
             snd x.Value
-            |> Seq.map(fun y -> $"state \"{y.Value}\" as {y.Key}")
+            |> Seq.map(fun y -> $"state \"{fst y.Value}\" as {y.Key}")
             |> String.concat Environment.NewLine
         $"state \"{fst x.Value}\" as {x.Key}{Environment.NewLine}{projectStates}")
     |> String.concat Environment.NewLine

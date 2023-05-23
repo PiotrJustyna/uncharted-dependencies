@@ -14,4 +14,6 @@ WORKDIR /App
 
 COPY --from=build-env /App/out .
 
+COPY ./UnchartedDependencies/ScannedCode/ ./ScannedCode/
+
 ENTRYPOINT ["dotnet", "UnchartedDependencies.dll"]
