@@ -4,12 +4,9 @@ open System.IO
 open System.Text.RegularExpressions
 open System.Xml
 
-let nixFriendlyPath (anyPath:string) : string = "./ScannedCode/" + anyPath.Replace("\\", "/")
+let mermaidFriendlyGuid () : string = Guid.NewGuid().ToString().Replace("-", "")
 
-let buildDictionary (input: string seq) : Collections.Generic.IDictionary<string, string> =
-    input
-    |> Seq.map (fun x -> Guid.NewGuid().ToString().Replace("-", ""), x)
-    |> dict
+let nixFriendlyPath (anyPath:string) : string = "./ScannedCode/" + anyPath.Replace("\\", "/")
 
 let referencesFound (fileName: string) : string =
     let xml = File.ReadAllText(fileName)
@@ -19,19 +16,12 @@ let referencesFound (fileName: string) : string =
     |> Seq.map (fun node -> node.Value)
     |> String.concat Environment.NewLine
 
-// printfn "```mermaid"
-// printfn "---"
-// printfn "title: dependencies"
-// printfn "---"
-// printfn "stateDiagram-v2"
-// printfn "direction lr"
-
 // solution files
 // k: unique identifier
 // v: solution file path
 let solutionFilePathsDictionary (startingPath:string) : Collections.Generic.IDictionary<string, string> =
     Directory.GetFiles(startingPath, "*.sln")
-    |> Seq.map (fun solutionFileName -> (Guid.NewGuid().ToString(), solutionFileName))
+    |> Seq.map (fun solutionFileName -> (mermaidFriendlyGuid(), solutionFileName))
     |> dict
 
 // project files
@@ -40,7 +30,7 @@ let solutionFilePathsDictionary (startingPath:string) : Collections.Generic.IDic
 let projectFilePathsDictionary (solutionFilePath:string) : Collections.Generic.IDictionary<string, string> =
     let solutionFileContent = File.ReadAllText solutionFilePath
     Regex.Matches(solutionFileContent, "[a-zA-Z\\\.]+\.[c|f]{1}sproj")
-        |> Seq.map (fun projectFileName -> (Guid.NewGuid().ToString(), nixFriendlyPath projectFileName.Value))
+        |> Seq.map (fun projectFileName -> (mermaidFriendlyGuid(), nixFriendlyPath projectFileName.Value))
         |> dict
 
 // project dependency files
@@ -58,13 +48,16 @@ let projectDependenciesDictionary (projectFilePath:string) (projects:Dictionary<
             let projectName = projectIdPathPair.Value.Substring(projectIdPathPair.Value.LastIndexOf('/'))
             // mathing on project names as relative paths can be different:
             // we build the projects collection from solution's perspective and the dependencies collection from project perspective
-            dependencyProjectName = projectName)
+            printfn $"{projectFilePath} - {dependencyProjectName} - {projectName}"
+            String.Equals(dependencyProjectName, projectName, StringComparison.CurrentCultureIgnoreCase))
         (foundProject.Key, foundProject.Value))
     |> dict
 
 let solutions = solutionFilePathsDictionary "./ScannedCode/"
 
 let humanReadableSolutions = solutions |> Seq.map (fun solutionIdPathPair -> $"{solutionIdPathPair.Key} | {solutionIdPathPair.Value}") |> String.concat Environment.NewLine
+
+let mermaidSolutions = solutions |> Seq.map (fun solutionIdPathPair -> $"state \"{solutionIdPathPair.Value}\" as {solutionIdPathPair.Key}") |> String.concat Environment.NewLine
 
 printfn $"Solutions:{Environment.NewLine}{humanReadableSolutions}"
 
@@ -80,9 +73,13 @@ solutions |> Seq.iter (fun solutionIdPathPair ->
 
 let humanReadableProjects = projects |> Seq.map (fun projectIdPathPair -> $"{projectIdPathPair.Key} | {projectIdPathPair.Value}") |> String.concat Environment.NewLine
 
+let mermaidProjects = projects |> Seq.map (fun projectIdPathPair -> $"state \"{projectIdPathPair.Value}\" as {projectIdPathPair.Key}") |> String.concat Environment.NewLine
+
 printfn $"Projects:{Environment.NewLine}{humanReadableProjects}"
 
 let humanReadableSolutionToProjectsMapping = solutionToProjectsMapping |> Seq.map (fun projectIdSolutionIdPair -> $"{projectIdSolutionIdPair.Key} | {projectIdSolutionIdPair.Value}") |> String.concat Environment.NewLine
+
+let mermaidSolutionToProjectsMapping = solutionToProjectsMapping |> Seq.map (fun projectIdSolutionIdPair -> $"{projectIdSolutionIdPair.Value} --> {projectIdSolutionIdPair.Key}") |> String.concat Environment.NewLine
 
 printfn $"solution - projects mapping:{Environment.NewLine}{humanReadableSolutionToProjectsMapping}"
 
@@ -90,47 +87,27 @@ let projectToDependenciesMapping = new Dictionary<string, (string * string)>()
 
 projects |> Seq.iter (fun projectIdPathPair ->
     projectDependenciesDictionary projectIdPathPair.Value projects
-    |> Seq.iter (fun projectIdDependencyIdPair -> projectToDependenciesMapping.Add(Guid.NewGuid().ToString(), (projectIdPathPair.Key, projectIdDependencyIdPair.Key))))
+    |> Seq.iter (fun projectIdDependencyIdPair -> projectToDependenciesMapping.Add(mermaidFriendlyGuid(), (projectIdPathPair.Key, projectIdDependencyIdPair.Key))))
 
 let humanReadableProjectToDependenciesMapping = projectToDependenciesMapping |> Seq.map (fun projectidDependencyIdPair -> $"{fst projectidDependencyIdPair.Value} | {snd projectidDependencyIdPair.Value}") |> String.concat Environment.NewLine
 
+let mermaidDependenciesMapping = projectToDependenciesMapping |> Seq.map (fun projectidDependencyIdPair -> $"{fst projectidDependencyIdPair.Value} --> {snd projectidDependencyIdPair.Value}") |> String.concat Environment.NewLine
+
 printfn $"project - dependencies mapping:{Environment.NewLine}{humanReadableProjectToDependenciesMapping}"
 
-// let solutions =
-//     Directory.GetFiles("./ScannedCode/", "*.sln")
-//     |> Seq.map (fun solutionFileName ->
-//         let solution = File.ReadAllText solutionFileName
-//         let projects =
-//             Regex.Matches(solution, "[a-zA-Z\\\.]+\.[c|f]{1}sproj")
-//             |> Seq.map (fun y ->
-//                 let path = nixFriendlyPath y.Value
-//                 Guid.NewGuid().ToString().Replace("-", ""), (path, referencesFound path))
-//             |> dict
-//         Guid.NewGuid().ToString().Replace("-", ""), (solutionFileName, projects))
-//     |> dict
+// printfn "```mermaid"
+printfn "---"
+printfn "title: dependencies"
+printfn "---"
+printfn "stateDiagram-v2"
+printfn "direction lr"
 
-// let states =
-//     solutions
-//     |> Seq.map (fun x ->
-//         let projectStates =
-//             snd x.Value
-//             |> Seq.map(fun y -> $"state \"{fst y.Value}\" as {y.Key}")
-//             |> String.concat Environment.NewLine
-//         $"state \"{fst x.Value}\" as {x.Key}{Environment.NewLine}{projectStates}")
-//     |> String.concat Environment.NewLine
+printfn $"{mermaidSolutions}"
 
-// let connections =
-//     solutions
-//     |> Seq.map (fun x ->
-//         let projectSt =
-//             snd x.Value
-//             |> Seq.map (fun y -> $"{x.Key} --> {y.Key}")
-//             |> String.concat Environment.NewLine
-//         $"[*] --> {x.Key}{Environment.NewLine}{projectSt}")
-//     |> String.concat Environment.NewLine
+printfn $"{mermaidProjects}"
 
-// printfn $"{states}"
+printfn $"{mermaidSolutionToProjectsMapping}"
 
-// printfn $"{connections}"
+printfn $"{mermaidDependenciesMapping}"
 
 // printfn "```"
