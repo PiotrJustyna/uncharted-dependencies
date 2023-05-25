@@ -16,6 +16,18 @@ let referencesFound (fileName: string) : string =
     |> Seq.map (fun node -> node.Value)
     |> String.concat Environment.NewLine
 
+let nugetPackages = new Dictionary<string, string>()
+
+let readNugetPackages (startingPath:string) =
+    Directory.GetFiles(startingPath, "paket.dependencies")
+    |> Seq.iter (fun dependenciesPath -> 
+        File.ReadAllText(dependenciesPath).Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        |> Seq.filter (fun dependency -> dependency.StartsWith("nuget "))
+        |> Seq.iter (fun dependency ->
+            let nugetKeyworkRemoved = dependency.Substring("nuget ".Length)
+            let cleanedDependency = if nugetKeyworkRemoved.Contains(" ") then nugetKeyworkRemoved.Remove(nugetKeyworkRemoved.IndexOf(" ")) else nugetKeyworkRemoved.Remove(nugetKeyworkRemoved.Length - 1)
+            nugetPackages.Add(mermaidFriendlyGuid(), cleanedDependency)))
+
 // solution files
 // k: unique identifier
 // v: solution file path
@@ -48,10 +60,17 @@ let projectDependenciesDictionary (projectFilePath:string) (projects:Dictionary<
             let projectName = projectIdPathPair.Value.Substring(projectIdPathPair.Value.LastIndexOf('/'))
             // mathing on project names as relative paths can be different:
             // we build the projects collection from solution's perspective and the dependencies collection from project perspective
-            printfn $"{projectFilePath} - {dependencyProjectName} - {projectName}"
             String.Equals(dependencyProjectName, projectName, StringComparison.CurrentCultureIgnoreCase))
         (foundProject.Key, foundProject.Value))
     |> dict
+
+readNugetPackages "./ScannedCode/"
+
+let humanReadablePackages = nugetPackages |> Seq.map (fun packageIdNamePair -> $"{packageIdNamePair.Key} | {packageIdNamePair.Value}") |> String.concat Environment.NewLine
+
+let mermaidPackages = nugetPackages |> Seq.map (fun packageIdNamePair -> $"state \"{packageIdNamePair.Value}\" as {packageIdNamePair.Key}") |> String.concat Environment.NewLine
+
+printfn $"{humanReadablePackages}"
 
 let solutions = solutionFilePathsDictionary "./ScannedCode/"
 
@@ -96,11 +115,18 @@ let mermaidDependenciesMapping = projectToDependenciesMapping |> Seq.map (fun pr
 printfn $"project - dependencies mapping:{Environment.NewLine}{humanReadableProjectToDependenciesMapping}"
 
 // printfn "```mermaid"
+
 printfn "---"
+
 printfn "title: dependencies"
+
 printfn "---"
+
 printfn "stateDiagram-v2"
+
 printfn "direction lr"
+
+printfn $"{mermaidPackages}"
 
 printfn $"{mermaidSolutions}"
 

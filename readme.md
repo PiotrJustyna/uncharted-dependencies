@@ -6,7 +6,7 @@ At the moment the tool lists all projects in the solutions it can find.
 
 TODO:
 
-* [ ] illustrate dependencies between projects
+* [x] illustrate dependencies between projects
 
 * [ ] support nuget and paket depdendencies
 
