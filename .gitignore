@@ -400,3 +400,4 @@ FodyWeavers.xsd
 UnchartedDependencies/ScannedCode/*
 
 *.DS_Store
+*.idea

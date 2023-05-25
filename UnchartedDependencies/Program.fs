@@ -2,6 +2,7 @@
 open System.Collections.Generic
 open System.IO
 open System.Text.RegularExpressions
+open System.Threading
 open System.Xml
 
 let mermaidFriendlyGuid () : string =
@@ -19,6 +20,7 @@ let readNugetPackages (startingPath: string) =
         File
             .ReadAllText(dependenciesPath)
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        |> Seq.map (fun dependency -> dependency.TrimStart())
         |> Seq.filter (fun dependency -> dependency.StartsWith("nuget "))
         |> Seq.iter (fun dependency ->
             let nugetKeyworkRemoved =
@@ -82,6 +84,8 @@ let projectDependenciesDictionary
 
         (foundProject.Key, foundProject.Value))
     |> dict
+
+// Thread.Sleep(60000)
 
 readNugetPackages "./ScannedCode/"
 
