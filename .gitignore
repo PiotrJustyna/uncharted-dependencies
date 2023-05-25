@@ -398,3 +398,5 @@ FodyWeavers.xsd
 *.sln.iml
 
 UnchartedDependencies/ScannedCode/*
+
+*.DS_Store
