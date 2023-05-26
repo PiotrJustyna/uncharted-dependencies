@@ -401,3 +401,4 @@ UnchartedDependencies/ScannedCode/*
 
 *.DS_Store
 *.idea
+output/*

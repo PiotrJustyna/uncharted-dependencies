@@ -6,4 +6,4 @@
 # Instead, use docker for building and running it.
 
 docker build -t uncharted-dependencies -f ./dockerfile ./ &&
-  docker run -it --rm uncharted-dependencies
+  docker run -v ./output:/tmp -it --rm uncharted-dependencies

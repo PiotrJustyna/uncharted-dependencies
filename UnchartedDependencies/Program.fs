@@ -1,9 +1,21 @@
 ﻿open System
 open System.Collections.Generic
 open System.IO
+open System.Text
 open System.Text.RegularExpressions
 open System.Threading
 open System.Xml
+
+// this is for troubleshooting docker-related issues
+// Thread.Sleep(60000)
+
+let debuggingMode = false
+
+let debugPrintfn (content: string) =
+    if debuggingMode then
+        printfn $"{content}"
+    else
+        ()
 
 let mermaidFriendlyGuid () : string =
     Guid.NewGuid().ToString().Replace("-", "")
@@ -11,10 +23,10 @@ let mermaidFriendlyGuid () : string =
 let nixFriendlyPath (anyPath: string) : string =
     "./ScannedCode/" + anyPath.Replace("\\", "/")
 
-let nugetPackages =
-    new Dictionary<string, string>()
+let readNugetPackages (startingPath: string) : Dictionary<string, string> =
+    let nugetPackages =
+        Dictionary<string, string>()
 
-let readNugetPackages (startingPath: string) =
     Directory.GetFiles(startingPath, "paket.dependencies")
     |> Seq.iter (fun dependenciesPath ->
         File
@@ -34,10 +46,12 @@ let readNugetPackages (startingPath: string) =
 
             nugetPackages.Add(mermaidFriendlyGuid (), cleanedDependency)))
 
+    nugetPackages
+
 // solution files
 // k: unique identifier
 // v: solution file path
-let solutionFilePathsDictionary (startingPath: string) : Collections.Generic.IDictionary<string, string> =
+let solutionFilePathsDictionary (startingPath: string) : IDictionary<string, string> =
     Directory.GetFiles(startingPath, "*.sln")
     |> Seq.map (fun solutionFileName -> (mermaidFriendlyGuid (), solutionFileName))
     |> dict
@@ -59,7 +73,7 @@ let projectFilePathsDictionary (solutionFilePath: string) : Collections.Generic.
 let projectDependenciesDictionary
     (projectFilePath: string)
     (projects: Dictionary<string, string>)
-    : Collections.Generic.IDictionary<string, string> =
+    : IDictionary<string, string> =
     let xml = File.ReadAllText(projectFilePath)
     let doc = new XmlDocument() in
     doc.LoadXml xml
@@ -85,9 +99,8 @@ let projectDependenciesDictionary
         (foundProject.Key, foundProject.Value))
     |> dict
 
-// Thread.Sleep(60000)
-
-readNugetPackages "./ScannedCode/"
+let nugetPackages =
+    readNugetPackages "./ScannedCode/"
 
 let humanReadablePackages =
     nugetPackages
@@ -99,7 +112,7 @@ let mermaidPackages =
     |> Seq.map (fun packageIdNamePair -> $"state \"{packageIdNamePair.Value}\" as {packageIdNamePair.Key}")
     |> String.concat Environment.NewLine
 
-printfn $"{humanReadablePackages}"
+debugPrintfn $"{humanReadablePackages}"
 
 let solutions =
     solutionFilePathsDictionary "./ScannedCode/"
@@ -114,13 +127,12 @@ let mermaidSolutions =
     |> Seq.map (fun solutionIdPathPair -> $"state \"{solutionIdPathPair.Value}\" as {solutionIdPathPair.Key}")
     |> String.concat Environment.NewLine
 
-printfn $"Solutions:{Environment.NewLine}{humanReadableSolutions}"
+debugPrintfn $"Solutions:{Environment.NewLine}{humanReadableSolutions}"
 
-let projects =
-    new Dictionary<string, string>()
+let projects = Dictionary<string, string>()
 
 let solutionToProjectsMapping =
-    new Dictionary<string, string>()
+    Dictionary<string, string>()
 
 solutions
 |> Seq.iter (fun solutionIdPathPair ->
@@ -139,7 +151,7 @@ let mermaidProjects =
     |> Seq.map (fun projectIdPathPair -> $"state \"{projectIdPathPair.Value}\" as {projectIdPathPair.Key}")
     |> String.concat Environment.NewLine
 
-printfn $"Projects:{Environment.NewLine}{humanReadableProjects}"
+debugPrintfn $"Projects:{Environment.NewLine}{humanReadableProjects}"
 
 let humanReadableSolutionToProjectsMapping =
     solutionToProjectsMapping
@@ -151,51 +163,109 @@ let mermaidSolutionToProjectsMapping =
     |> Seq.map (fun projectIdSolutionIdPair -> $"{projectIdSolutionIdPair.Value} --> {projectIdSolutionIdPair.Key}")
     |> String.concat Environment.NewLine
 
-printfn $"solution - projects mapping:{Environment.NewLine}{humanReadableSolutionToProjectsMapping}"
+debugPrintfn $"Solution - Projects mapping:{Environment.NewLine}{humanReadableSolutionToProjectsMapping}"
 
-let projectToDependenciesMapping =
-    new Dictionary<string, (string * string)>()
+let projectToInternalDependenciesMapping = Dictionary<string, (string * string)>()
+
+let projectToExternalDependenciesMapping = Dictionary<string, (string * string)>()
 
 projects
 |> Seq.iter (fun projectIdPathPair ->
+    // paket dependencies
+    let paketReferencesPath =
+        projectIdPathPair.Value.Remove(projectIdPathPair.Value.LastIndexOf("/"))
+        + "/paket.references"
+
+    let paketReferencesExistsForProject =
+        File.Exists(paketReferencesPath)
+
+    debugPrintfn
+        $"paket.references ({paketReferencesPath}) file for project \"{projectIdPathPair.Value}\" found: {paketReferencesExistsForProject}"
+
+    if paketReferencesExistsForProject then
+        File.ReadAllLines(paketReferencesPath)
+        |> Seq.filter (fun externalDependencyName ->
+            String.IsNullOrWhiteSpace(externalDependencyName)
+            |> not
+            && externalDependencyName.StartsWith("#") |> not)
+        |> Seq.iter (fun externalDependencyName ->
+            let cleanedExternalDependencyName =
+                if externalDependencyName.Contains(" ") then
+                    externalDependencyName.Remove(externalDependencyName.IndexOf(" "))
+                else
+                    externalDependencyName
+
+            let externalDependencyLookup =
+                nugetPackages
+                |> Seq.tryFind (fun nugetPackage -> String.Equals(nugetPackage.Value, cleanedExternalDependencyName, StringComparison.CurrentCultureIgnoreCase))
+
+            match externalDependencyLookup with
+            | None ->
+                printfn
+                    $"WARNING: {cleanedExternalDependencyName} could not be found in packet.dependencies for project {projectIdPathPair.Value}!"
+            | Some x ->
+                debugPrintfn $"* {x.Key} - {x.Value}"
+                projectToExternalDependenciesMapping.Add(mermaidFriendlyGuid (), (projectIdPathPair.Key, x.Key)))
+    else
+        ()
+
+    // solution-internal dependency projects
     projectDependenciesDictionary projectIdPathPair.Value projects
     |> Seq.iter (fun projectIdDependencyIdPair ->
-        projectToDependenciesMapping.Add(mermaidFriendlyGuid (), (projectIdPathPair.Key, projectIdDependencyIdPair.Key))))
+        projectToInternalDependenciesMapping.Add(mermaidFriendlyGuid (), (projectIdPathPair.Key, projectIdDependencyIdPair.Key))))
 
-let humanReadableProjectToDependenciesMapping =
-    projectToDependenciesMapping
-    |> Seq.map (fun projectidDependencyIdPair ->
-        $"{fst projectidDependencyIdPair.Value} | {snd projectidDependencyIdPair.Value}")
+let humanReadableProjectToInternalDependenciesMapping =
+    projectToInternalDependenciesMapping
+    |> Seq.map (fun projectIdDependencyIdPair ->
+        $"{fst projectIdDependencyIdPair.Value} | {snd projectIdDependencyIdPair.Value}")
     |> String.concat Environment.NewLine
 
-let mermaidDependenciesMapping =
-    projectToDependenciesMapping
+let humanReadableProjectToExternalDependenciesMapping =
+    projectToExternalDependenciesMapping
+    |> Seq.map (fun x -> (fst x.Value, snd x.Value))
+    |> Seq.groupBy (fun x -> fst x)
+    |> Seq.sortBy (fun x -> snd x |> Seq.length)
+    |> Seq.map (fun x ->
+        let humanReadableNugetDependencies = snd x |> Seq.map (fun y -> $"* {nugetPackages[snd y]}") |> String.concat Environment.NewLine
+        $"## {projects[fst x]}{Environment.NewLine}{Environment.NewLine}{humanReadableNugetDependencies}{Environment.NewLine}")
+    |> String.concat Environment.NewLine
+
+let mermaidInternalDependenciesMapping =
+    projectToInternalDependenciesMapping
     |> Seq.map (fun projectidDependencyIdPair ->
         $"{fst projectidDependencyIdPair.Value} --> {snd projectidDependencyIdPair.Value}")
     |> String.concat Environment.NewLine
 
-printfn $"project - dependencies mapping:{Environment.NewLine}{humanReadableProjectToDependenciesMapping}"
+let mermaidExternalDependenciesMapping =
+    projectToExternalDependenciesMapping
+    |> Seq.map (fun projectidDependencyIdPair ->
+        $"{fst projectidDependencyIdPair.Value} --> {snd projectidDependencyIdPair.Value}")
+    |> String.concat Environment.NewLine
 
-// printfn "```mermaid"
+debugPrintfn $"project - internal dependencies mapping:{Environment.NewLine}{humanReadableProjectToInternalDependenciesMapping}"
 
-printfn "---"
+printfn $"project - external dependencies mapping:{Environment.NewLine}{humanReadableProjectToExternalDependenciesMapping}"
 
-printfn "title: dependencies"
+let mermaidContent =
+    [|"```mermaid";
+    "---";
+    "title: dependencies";
+    "---";
+    "stateDiagram-v2";
+    "direction lr";
+    $"{mermaidPackages}";
+    $"{mermaidSolutions}";
+    $"{mermaidProjects}";
+    $"{mermaidSolutionToProjectsMapping}";
+    "state internaldependencies {";
+    $"{mermaidInternalDependenciesMapping}";
+    "}";
+    $"{mermaidExternalDependenciesMapping}";
+    "```"|]
+    |> String.concat Environment.NewLine
 
-printfn "---"
+debugPrintfn $"{mermaidContent}"
 
-printfn "stateDiagram-v2"
+File.WriteAllText("/tmp/mermaid-output.md", mermaidContent)
 
-printfn "direction lr"
-
-printfn $"{mermaidPackages}"
-
-printfn $"{mermaidSolutions}"
-
-printfn $"{mermaidProjects}"
-
-printfn $"{mermaidSolutionToProjectsMapping}"
-
-printfn $"{mermaidDependenciesMapping}"
-
-// printfn "```"
+File.WriteAllText("/tmp/markdown-output.md", humanReadableProjectToExternalDependenciesMapping)
